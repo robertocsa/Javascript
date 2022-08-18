@@ -1,0 +1,1 @@
+Falta implementar as outras regras de validação dos silogismos categóricos.
