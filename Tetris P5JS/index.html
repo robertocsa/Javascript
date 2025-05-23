@@ -1,0 +1,204 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html>
+<head>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/p5.min.js"></script>
+</head>
+<body>
+<script>
+let WIDTH = 16;          // Board width (16 cells)
+let HEIGHT = 32;         // Board height (32 cells)
+let CELL_SIZE = 8;       // Each cell is 8x8 pixels
+let COLOR_BLOCK = [255, 0, 0]; // Red for blocks
+let COLOR_BG = [0, 0, 0];      // Black for background
+let DELAY_FRAMES = 30;         // Approx 0.5s at 60 FPS (5000 cycles in MIPS)
+let board;                     // 2D array for board (16x32)
+let currentPiece = [];         // Current piece coordinates [x,y]
+let pieceX, pieceY;            // Center position of current piece
+let pieceType;                 // Type of current piece (0=I, 1=O, 2=L, 3=T)
+let frameCounter = 0;          // For timing piece movement
+
+// Piece definitions (relative x,y coordinates for 4 blocks)
+const PIECES = [
+  [[0,-1], [0,0], [0,1], [0,2]], // I
+  [[0,0], [0,1], [1,0], [1,1]],   // O
+  [[0,-1], [0,0], [0,1], [1,-1]], // L
+  [[0,-1], [0,0], [0,1], [-1,0]]  // T
+];
+
+function setup() {
+  createCanvas(WIDTH * CELL_SIZE, HEIGHT * CELL_SIZE); // 128x256 pixels
+  board = Array(HEIGHT).fill().map(() => Array(WIDTH).fill(0)); // Initialize board
+  pieceType = -1; // No piece initially
+  generatePiece();
+}
+
+function draw() {
+  // Clear canvas
+  background(COLOR_BG);
+  // Draw board
+  drawBoard();
+  // Draw current piece
+  drawPiece();
+  // Update game state
+  frameCounter++;
+  if (frameCounter >= DELAY_FRAMES) {
+    frameCounter = 0;
+    if (!tryMoveDown()) {
+      fixPiece();
+      generatePiece();
+    }
+  }
+}
+
+function drawBoard() {
+  for (let y = 0; y < HEIGHT; y++) {
+    for (let x = 0; x < WIDTH; x++) {
+      if (board[y][x] === 1) {
+        fill(COLOR_BLOCK);
+      } else {
+        fill(COLOR_BG);
+      }
+      rect(x * CELL_SIZE, y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+    }
+  }
+}
+
+function drawPiece() {
+  fill(COLOR_BLOCK);
+  for (let i = 0; i < 4; i++) {
+    let x = pieceX + currentPiece[i][0];
+    let y = pieceY + currentPiece[i][1];
+    if (x >= 0 && x < WIDTH && y >= 0 && y < HEIGHT) {
+      rect(x * CELL_SIZE, y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+    }
+  }
+}
+
+function generatePiece() {
+  pieceType = floor(random(4)); // Random piece (0-3)
+  currentPiece = PIECES[pieceType].map(coord => [...coord]); // Deep copy
+  pieceX = 8; // Center of 16 columns
+  pieceY = 0; // Top of board
+  if (checkCollision()) {
+    gameOver();
+  }
+}
+
+function tryMoveDown() {
+  pieceY++;
+  if (checkCollision()) {
+    pieceY--;
+    return false;
+  }
+  return true;
+}
+
+function fixPiece() {
+  for (let i = 0; i < 4; i++) {
+    let x = pieceX + currentPiece[i][0];
+    let y = pieceY + currentPiece[i][1];
+    if (x >= 0 && x < WIDTH && y >= 0 && y < HEIGHT) {
+      board[y][x] = 1;
+    }
+  }
+  clearLines();
+  pieceType = -1; // No piece
+}
+
+function clearLines() {
+  for (let y = HEIGHT - 1; y >= 0; y--) {
+    if (board[y].every(cell => cell === 1)) {
+      // Remove line
+      board.splice(y, 1);
+      // Add empty line at top
+      board.unshift(Array(WIDTH).fill(0));
+      y++; // Re-check same y after shift
+    }
+  }
+}
+
+function checkCollision() {
+  for (let i = 0; i < 4; i++) {
+    let x = pieceX + currentPiece[i][0];
+    let y = pieceY + currentPiece[i][1];
+    if (x < 0 || x >= WIDTH || y >= HEIGHT) {
+      return true;
+    }
+    if (y >= 0 && board[y][x] === 1) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function keyPressed() {
+  if (key === '4') { // Left
+    pieceX--;
+    if (checkCollision()) {
+      pieceX++;
+    }
+  } else if (key === '6') { // Right
+    pieceX++;
+    if (checkCollision()) {
+      pieceX--;
+    }
+  } else if (key === '2') { // Down
+    tryMoveDown();
+  } else if (key === '5') { // Rotate
+    let tempPiece = currentPiece.map(coord => [coord[1], -coord[0]]); // 90° rotation
+    let oldPiece = currentPiece.map(coord => [...coord]);
+    currentPiece = tempPiece;
+    if (checkCollision()) {
+      currentPiece = oldPiece; // Revert if collision
+    }
+  } else if (key === 'q') { // Quit
+    gameOver();
+  }
+}
+
+function gameOver() {
+  background(COLOR_BG);
+  noLoop(); // Stop draw loop
+}
+</script>
+</body>
+</html>
